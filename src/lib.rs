@@ -152,43 +152,20 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         Self::create_proof_with_reduction_distributed(circuit, pk, r, s, i, total, partial_results)
     }
 
-    /// Checkpointed version of MSM computation that uses filesystem caching.
-    /// This method saves intermediate results to disk and can resume
-    /// computation.
-    pub fn compute_msm_checkpointed(
+    /// Create a Groth16 proof using the checkpoint feature.
+    pub fn prove_checkpointed<C: ConstraintSynthesizer<E::ScalarField>, R: RngCore>(
         pk: &ProvingKey<E>,
-        h: &[E::ScalarField],
-        input_assignment: &[E::ScalarField],
-        aux_assignment: &[E::ScalarField],
+        circuit: C,
+        rng: &mut R,
         total: usize,
         checkpoint_dir: Option<&str>,
-    ) -> (E::G1, E::G1, E::G1, E::G1, E::G2) {
-        Self::compute_all_msm_in_proof_generation_checkpointed(
+    ) -> Result<Proof<E>, SynthesisError> {
+        Self::create_random_proof_with_reduction_checkpointed(
+            circuit,
             pk,
-            h,
-            input_assignment,
-            aux_assignment,
+            rng,
             total,
             checkpoint_dir,
         )
-    }
-
-    /// Create proof using pre-computed MSM results from checkpointed
-    /// computation.
-    pub fn create_proof_from_msm_results(
-        pk: &ProvingKey<E>,
-        r: E::ScalarField,
-        s: E::ScalarField,
-        msm_results: (E::G1, E::G1, E::G1, E::G1, E::G2),
-    ) -> Result<Proof<E>, SynthesisError> {
-        Self::create_proof_with_intermediate_results(pk, r, s, msm_results)
-    }
-
-    /// Combine partial MSM results from multiple participants into a single
-    /// result.
-    pub fn combine_partial_msm_results(
-        partial_results: &[(E::G1, E::G1, E::G1, E::G1, E::G2)],
-    ) -> (E::G1, E::G1, E::G1, E::G1, E::G2) {
-        Self::combine_partial_msm_results_internal(partial_results)
     }
 }

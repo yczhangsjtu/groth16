@@ -505,6 +505,28 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         Self::create_proof_with_intermediate_results(pk, r, s, msm_results)
     }
 
+    #[inline]
+    fn create_proof_with_assignment_checkpointed(
+        pk: &ProvingKey<E>,
+        r: E::ScalarField,
+        s: E::ScalarField,
+        h: &[E::ScalarField],
+        input_assignment: &[E::ScalarField],
+        aux_assignment: &[E::ScalarField],
+        total: usize,
+        checkpoint_dir: Option<&str>,
+    ) -> R1CSResult<Proof<E>> {
+        let msm_results = Self::compute_all_msm_in_proof_generation_checkpointed(
+            pk,
+            h,
+            input_assignment,
+            aux_assignment,
+            total,
+            checkpoint_dir,
+        );
+        Self::create_proof_with_intermediate_results(pk, r, s, msm_results)
+    }
+
     /// Create a Groth16 proof that is zero-knowledge using the provided
     /// R1CS-to-QAP reduction.
     /// This method samples randomness for zero knowledges via `rng`.
@@ -521,6 +543,26 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         let s = E::ScalarField::rand(rng);
 
         Self::create_proof_with_reduction(circuit, pk, r, s)
+    }
+
+    /// Create a Groth16 proof that is zero-knowledge using the provided
+    /// R1CS-to-QAP reduction.
+    /// This method samples randomness for zero knowledges via `rng`.
+    #[inline]
+    pub fn create_random_proof_with_reduction_checkpointed<C>(
+        circuit: C,
+        pk: &ProvingKey<E>,
+        rng: &mut impl Rng,
+        total: usize,
+        checkpoint_dir: Option<&str>,
+    ) -> R1CSResult<Proof<E>>
+    where
+        C: ConstraintSynthesizer<E::ScalarField>,
+    {
+        let r = E::ScalarField::rand(rng);
+        let s = E::ScalarField::rand(rng);
+
+        Self::create_proof_with_reduction_checkpointed(circuit, pk, r, s, total, checkpoint_dir)
     }
 
     /// Create a Groth16 proof that is *not* zero-knowledge with the provided
@@ -583,6 +625,59 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             &h,
             &prover.instance_assignment[1..],
             &prover.witness_assignment,
+        )?;
+
+        end_timer!(prover_time);
+
+        Ok(proof)
+    }
+
+    /// Create a Groth16 proof using randomness `r` and `s` and the provided
+    /// R1CS-to-QAP reduction.
+    #[inline]
+    pub fn create_proof_with_reduction_checkpointed<C>(
+        circuit: C,
+        pk: &ProvingKey<E>,
+        r: E::ScalarField,
+        s: E::ScalarField,
+        total: usize,
+        checkpoint_dir: Option<&str>,
+    ) -> R1CSResult<Proof<E>>
+    where
+        E: Pairing,
+        C: ConstraintSynthesizer<E::ScalarField>,
+        QAP: R1CSToQAP,
+    {
+        let prover_time = start_timer!(|| "Groth16::Prover");
+        let cs = ConstraintSystem::new_ref();
+
+        // Set the optimization goal
+        cs.set_optimization_goal(OptimizationGoal::Constraints);
+
+        // Synthesize the circuit.
+        let synthesis_time = start_timer!(|| "Constraint synthesis");
+        circuit.generate_constraints(cs.clone())?;
+        debug_assert!(cs.is_satisfied().unwrap());
+        end_timer!(synthesis_time);
+
+        let lc_time = start_timer!(|| "Inlining LCs");
+        cs.finalize();
+        end_timer!(lc_time);
+
+        let witness_map_time = start_timer!(|| "R1CS to QAP witness map");
+        let h = QAP::witness_map::<E::ScalarField, D<E::ScalarField>>(cs.clone())?;
+        end_timer!(witness_map_time);
+
+        let prover = cs.borrow().unwrap();
+        let proof = Self::create_proof_with_assignment_checkpointed(
+            pk,
+            r,
+            s,
+            &h,
+            &prover.instance_assignment[1..],
+            &prover.witness_assignment,
+            total,
+            checkpoint_dir,
         )?;
 
         end_timer!(prover_time);
