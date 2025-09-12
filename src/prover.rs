@@ -229,8 +229,8 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     }
 
     /// Checkpointed version of compute_all_msm_in_proof_generation.
-    /// Uses filesystem to cache partial results and invokes the distributed
-    /// version internally.
+    /// Uses filesystem to cache partial results and randominvokes the
+    /// distributed version internally.
     #[inline]
     pub fn compute_all_msm_in_proof_generation_checkpointed(
         pk: &ProvingKey<E>,
@@ -249,7 +249,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         }
 
         for i in 0..total {
-            let checkpoint_file = format!("{}/msm_result_{}.bin", checkpoint_path, i);
+            let checkpoint_file = format!("{}/msm_result_{}_{}.bin", checkpoint_path, i, total);
 
             // Try to load from checkpoint
             let result = if Path::new(&checkpoint_file).exists() {
@@ -257,17 +257,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
                 match Self::load_partial_msm_result(&checkpoint_file) {
                     Ok(result) => result,
                     Err(_) => {
-                        // If loading fails, compute and save
-                        let result = Self::compute_all_msm_in_proof_generation_distributed(
-                            pk,
-                            h,
-                            input_assignment,
-                            aux_assignment,
-                            i,
-                            total,
-                        );
-                        let _ = Self::save_partial_msm_result(&result, &checkpoint_file);
-                        result
+                        panic!("Failed to load partial MSM result")
                     },
                 }
             } else {
@@ -280,7 +270,8 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
                     i,
                     total,
                 );
-                let _ = Self::save_partial_msm_result(&result, &checkpoint_file);
+                Self::save_partial_msm_result(&result, &checkpoint_file)
+                    .expect("Failed to save partial MSM result");
                 result
             };
 
@@ -297,7 +288,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         path: &str,
     ) -> Result<(), std::io::Error> {
         let mut buffer = Vec::new();
-        result.serialize_compressed(&mut buffer).map_err(|e| {
+        result.serialize_uncompressed(&mut buffer).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Serialization error: {}", e),
@@ -313,7 +304,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         path: &str,
     ) -> Result<(E::G1, E::G1, E::G1, E::G1, E::G2), std::io::Error> {
         let buffer = fs::read(path)?;
-        let result = <(E::G1, E::G1, E::G1, E::G1, E::G2)>::deserialize_compressed(&*buffer)
+        let result = <(E::G1, E::G1, E::G1, E::G1, E::G2)>::deserialize_uncompressed(&*buffer)
             .map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
