@@ -6,6 +6,7 @@ use ark_relations::r1cs::{
     ConstraintMatrices, ConstraintSynthesizer, ConstraintSystem, OptimizationGoal,
     Result as R1CSResult,
 };
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
     cfg_into_iter, cfg_iter,
     ops::{AddAssign, Mul},
@@ -289,31 +290,37 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         Self::combine_partial_msm_results_internal(&partial_results)
     }
 
-    /// Save partial MSM result to file (simplified binary format).
-    /// In a real implementation, this would use proper serialization.
+    /// Save partial MSM result to file using arkworks serialization.
     #[inline]
     fn save_partial_msm_result(
-        _result: &(E::G1, E::G1, E::G1, E::G1, E::G2),
-        _path: &str,
+        result: &(E::G1, E::G1, E::G1, E::G1, E::G2),
+        path: &str,
     ) -> Result<(), std::io::Error> {
-        // For now, return Ok() as serialization depends on the specific curve
-        // implementation In practice, you'd serialize the group elements to
-        // bytes
+        let mut buffer = Vec::new();
+        result.serialize_compressed(&mut buffer).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Serialization error: {}", e),
+            )
+        })?;
+        fs::write(path, buffer)?;
         Ok(())
     }
 
-    /// Load partial MSM result from file (simplified binary format).
-    /// In a real implementation, this would use proper deserialization.
+    /// Load partial MSM result from file using arkworks deserialization.
     #[inline]
     fn load_partial_msm_result(
-        _path: &str,
+        path: &str,
     ) -> Result<(E::G1, E::G1, E::G1, E::G1, E::G2), std::io::Error> {
-        // For now, return an error to force computation
-        // In practice, you'd deserialize the group elements from bytes
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Not implemented",
-        ))
+        let buffer = fs::read(path)?;
+        let result = <(E::G1, E::G1, E::G1, E::G1, E::G2)>::deserialize_compressed(&*buffer)
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Deserialization error: {}", e),
+                )
+            })?;
+        Ok(result)
     }
 
     /// Distributed version of create_proof_with_assignment.
