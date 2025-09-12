@@ -314,6 +314,38 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         Ok(result)
     }
 
+    /// Save randomness values r and s to file.
+    #[inline]
+    fn save_randomness(
+        r: &E::ScalarField,
+        s: &E::ScalarField,
+        path: &str,
+    ) -> Result<(), std::io::Error> {
+        let mut buffer = Vec::new();
+        (*r, *s).serialize_compressed(&mut buffer).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Randomness serialization error: {}", e),
+            )
+        })?;
+        fs::write(path, buffer)?;
+        Ok(())
+    }
+
+    /// Load randomness values r and s from file.
+    #[inline]
+    fn load_randomness(path: &str) -> Result<(E::ScalarField, E::ScalarField), std::io::Error> {
+        let buffer = fs::read(path)?;
+        let result =
+            <(E::ScalarField, E::ScalarField)>::deserialize_compressed(&*buffer).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Randomness deserialization error: {}", e),
+                )
+            })?;
+        Ok(result)
+    }
+
     /// Distributed version of create_proof_with_assignment.
     /// If i != 0, returns partial MSM results. If i == 0, combines all partial
     /// results and creates the final proof.
@@ -557,8 +589,32 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     where
         C: ConstraintSynthesizer<E::ScalarField>,
     {
-        let r = E::ScalarField::rand(rng);
-        let s = E::ScalarField::rand(rng);
+        let checkpoint_path = checkpoint_dir.unwrap_or("./checkpoints");
+
+        // Create checkpoint directory if it doesn't exist
+        let _ = fs::create_dir_all(checkpoint_path);
+
+        let randomness_file = format!("{}/randomness.bin", checkpoint_path);
+
+        // Try to load existing randomness, or generate new if not found
+        let (r, s) = if Path::new(&randomness_file).exists() {
+            match Self::load_randomness(&randomness_file) {
+                Ok((r, s)) => (r, s),
+                Err(_) => {
+                    // If loading fails, generate new randomness and save
+                    let r = E::ScalarField::rand(rng);
+                    let s = E::ScalarField::rand(rng);
+                    let _ = Self::save_randomness(&r, &s, &randomness_file);
+                    (r, s)
+                },
+            }
+        } else {
+            // Generate new randomness and save
+            let r = E::ScalarField::rand(rng);
+            let s = E::ScalarField::rand(rng);
+            let _ = Self::save_randomness(&r, &s, &randomness_file);
+            (r, s)
+        };
 
         Self::create_proof_with_reduction_checkpointed(circuit, pk, r, s, total, checkpoint_dir)
     }
