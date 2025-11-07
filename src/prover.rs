@@ -202,7 +202,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     /// participants. Takes a list of partial MSM results and combines them
     /// into a single result.
     #[inline]
-    pub fn combine_partial_msm_results_internal(
+    pub fn combine_partial_msm_results(
         partial_results: &[(E::G1, E::G1, E::G1, E::G1, E::G2)],
     ) -> (E::G1, E::G1, E::G1, E::G1, E::G2) {
         let mut combined_h_acc = E::G1::zero();
@@ -278,7 +278,7 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
             partial_results.push(result);
         }
 
-        Self::combine_partial_msm_results_internal(&partial_results)
+        Self::combine_partial_msm_results(&partial_results)
     }
 
     /// Save partial MSM result to file using arkworks serialization.
@@ -352,45 +352,22 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     #[inline]
     fn create_proof_with_assignment_distributed(
         pk: &ProvingKey<E>,
-        r: E::ScalarField,
-        s: E::ScalarField,
         h: &[E::ScalarField],
         input_assignment: &[E::ScalarField],
         aux_assignment: &[E::ScalarField],
         i: usize,
         total: usize,
-        partial_results: Option<&[(E::G1, E::G1, E::G1, E::G1, E::G2)]>,
-    ) -> R1CSResult<Either<Proof<E>, (E::G1, E::G1, E::G1, E::G1, E::G2)>> {
-        if i != 0 {
-            // Non-coordinator: compute and return partial MSM results
-            let partial = Self::compute_all_msm_in_proof_generation_distributed(
-                pk,
-                h,
-                input_assignment,
-                aux_assignment,
-                i,
-                total,
-            );
-            Ok(Either::Right(partial))
-        } else {
-            // Coordinator: collect partial results and create final proof
-            let mut all_partials = vec![Self::compute_all_msm_in_proof_generation_distributed(
-                pk,
-                h,
-                input_assignment,
-                aux_assignment,
-                0,
-                total,
-            )];
-
-            if let Some(partials) = partial_results {
-                all_partials.extend_from_slice(partials);
-            }
-
-            let combined_results = Self::combine_partial_msm_results_internal(&all_partials);
-            let proof = Self::create_proof_with_intermediate_results(pk, r, s, combined_results)?;
-            Ok(Either::Left(proof))
-        }
+    ) -> R1CSResult<(E::G1, E::G1, E::G1, E::G1, E::G2)> {
+        // Non-coordinator: compute and return partial MSM results
+        let partial = Self::compute_all_msm_in_proof_generation_distributed(
+            pk,
+            h,
+            input_assignment,
+            aux_assignment,
+            i,
+            total,
+        );
+        Ok(partial)
     }
 
     /// Distributed version of create_proof_with_reduction.
@@ -398,12 +375,9 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     pub fn create_proof_with_reduction_distributed<C>(
         circuit: C,
         pk: &ProvingKey<E>,
-        r: E::ScalarField,
-        s: E::ScalarField,
         i: usize,
         total: usize,
-        partial_results: Option<&[(E::G1, E::G1, E::G1, E::G1, E::G2)]>,
-    ) -> R1CSResult<Either<Proof<E>, (E::G1, E::G1, E::G1, E::G1, E::G2)>>
+    ) -> R1CSResult<(E::G1, E::G1, E::G1, E::G1, E::G2)>
     where
         E: Pairing,
         C: ConstraintSynthesizer<E::ScalarField>,
@@ -432,14 +406,11 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
         let prover = cs.borrow().unwrap();
         let result = Self::create_proof_with_assignment_distributed(
             pk,
-            r,
-            s,
             &h,
             &prover.instance_assignment[1..],
             &prover.witness_assignment,
             i,
             total,
-            partial_results,
         );
 
         end_timer!(prover_time);
@@ -451,18 +422,28 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     pub fn create_random_proof_with_reduction_distributed<C>(
         circuit: C,
         pk: &ProvingKey<E>,
-        rng: &mut impl Rng,
         i: usize,
         total: usize,
-        partial_results: Option<&[(E::G1, E::G1, E::G1, E::G1, E::G2)]>,
-    ) -> R1CSResult<Either<Proof<E>, (E::G1, E::G1, E::G1, E::G1, E::G2)>>
+    ) -> R1CSResult<(E::G1, E::G1, E::G1, E::G1, E::G2)>
     where
         C: ConstraintSynthesizer<E::ScalarField>,
     {
+        Self::create_proof_with_reduction_distributed(circuit, pk, i, total)
+    }
+
+    /// Create proof using intermediate MSM results. Generate the r, s using
+    /// rng. Takes only pk, rng, and the tuple of MSM results.
+    #[inline]
+    pub fn create_proof_with_intermediate_results_randomized(
+        pk: &ProvingKey<E>,
+        rng: &mut impl Rng,
+        msm_results: &[(E::G1, E::G1, E::G1, E::G1, E::G2)],
+    ) -> R1CSResult<Proof<E>> {
         let r = E::ScalarField::rand(rng);
         let s = E::ScalarField::rand(rng);
 
-        Self::create_proof_with_reduction_distributed(circuit, pk, r, s, i, total, partial_results)
+        let msm_result = Self::combine_partial_msm_results(msm_results);
+        Self::create_proof_with_intermediate_results(pk, r, s, msm_result)
     }
 
     /// Create proof using intermediate MSM results.

@@ -100,42 +100,13 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     /// Distributed version of prove function.
     /// If i != 0, returns partial MSM results. If i == 0, combines all partial
     /// results and creates the final proof.
-    pub fn prove_distributed<C: ConstraintSynthesizer<E::ScalarField>, R: RngCore>(
+    pub fn prove_distributed<C: ConstraintSynthesizer<E::ScalarField>>(
         pk: &ProvingKey<E>,
         circuit: C,
-        rng: &mut R,
         i: usize,
         total: usize,
-        partial_results: Option<&[(E::G1, E::G1, E::G1, E::G1, E::G2)]>,
-    ) -> Result<Either<Proof<E>, (E::G1, E::G1, E::G1, E::G1, E::G2)>, SynthesisError> {
-        Self::create_random_proof_with_reduction_distributed(
-            circuit,
-            pk,
-            rng,
-            i,
-            total,
-            partial_results,
-        )
-    }
-
-    /// Create a Groth16 proof using randomness and distributed computation.
-    /// This method samples randomness for zero knowledges via `rng`.
-    pub fn create_random_proof_distributed<C: ConstraintSynthesizer<E::ScalarField>, R: RngCore>(
-        circuit: C,
-        pk: &ProvingKey<E>,
-        rng: &mut R,
-        i: usize,
-        total: usize,
-        partial_results: Option<&[(E::G1, E::G1, E::G1, E::G1, E::G2)]>,
-    ) -> Result<Either<Proof<E>, (E::G1, E::G1, E::G1, E::G1, E::G2)>, SynthesisError> {
-        Self::create_random_proof_with_reduction_distributed(
-            circuit,
-            pk,
-            rng,
-            i,
-            total,
-            partial_results,
-        )
+    ) -> Result<(E::G1, E::G1, E::G1, E::G1, E::G2), SynthesisError> {
+        Self::create_random_proof_with_reduction_distributed(circuit, pk, i, total)
     }
 
     /// Create a Groth16 proof using specified randomness and distributed
@@ -143,13 +114,10 @@ impl<E: Pairing, QAP: R1CSToQAP> Groth16<E, QAP> {
     pub fn create_proof_distributed<C: ConstraintSynthesizer<E::ScalarField>>(
         circuit: C,
         pk: &ProvingKey<E>,
-        r: E::ScalarField,
-        s: E::ScalarField,
         i: usize,
         total: usize,
-        partial_results: Option<&[(E::G1, E::G1, E::G1, E::G1, E::G2)]>,
-    ) -> Result<Either<Proof<E>, (E::G1, E::G1, E::G1, E::G1, E::G2)>, SynthesisError> {
-        Self::create_proof_with_reduction_distributed(circuit, pk, r, s, i, total, partial_results)
+    ) -> Result<(E::G1, E::G1, E::G1, E::G1, E::G2), SynthesisError> {
+        Self::create_proof_with_reduction_distributed(circuit, pk, i, total)
     }
 
     /// Create a Groth16 proof using the checkpoint feature.
